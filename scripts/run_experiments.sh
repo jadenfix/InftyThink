@@ -5,7 +5,10 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 source .venv/bin/activate
-export JAX_PLATFORMS=cpu
+# Only force CPU if no GPU available
+if ! python -c "import jax; assert any('gpu' in str(d).lower() for d in jax.devices())" 2>/dev/null; then
+    export JAX_PLATFORMS=cpu
+fi
 
 echo "=== [1/10] Baseline B1: Vanilla CoT ==="
 python main.py run-experiment --name b1_vanilla_cot

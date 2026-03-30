@@ -13,7 +13,14 @@ import argparse
 import os
 import sys
 
-os.environ.setdefault("JAX_PLATFORMS", "cpu")
+# Auto-detect: only force CPU if no GPU/TPU is available
+if "JAX_PLATFORMS" not in os.environ:
+    try:
+        import jax
+        if not any("gpu" in str(d).lower() or "tpu" in str(d).lower() for d in jax.devices()):
+            os.environ["JAX_PLATFORMS"] = "cpu"
+    except Exception:
+        os.environ["JAX_PLATFORMS"] = "cpu"
 
 
 # ---------------------------------------------------------------------------

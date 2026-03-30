@@ -1,0 +1,14 @@
+jax[cuda12]==0.4.28
+flax==0.8.4
+optax==0.2.3
+transformers==4.40.0
+datasets==2.19.0
+numpy==1.26.4
+scipy==1.13.0
+matplotlib==3.9.0
+seaborn==0.13.2
+tqdm==4.66.4
+sentencepiece==0.2.0
+evaluate==0.4.2
+einops==0.8.0
+pyyaml==6.0.1

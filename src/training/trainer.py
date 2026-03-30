@@ -173,10 +173,10 @@ def train_step(
     state = _apply_grads(state, accumulated_grads)
 
     metrics = {
-        "loss": total_loss,
-        "segment_loss": total_seg_loss,
-        "summary_loss": total_sum_loss,
-        "final_loss": total_fin_loss,
+        "loss": float(total_loss),
+        "segment_loss": float(total_seg_loss),
+        "summary_loss": float(total_sum_loss),
+        "final_loss": float(total_fin_loss),
         "step": int(state.step),
     }
     return state, metrics

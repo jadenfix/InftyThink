@@ -3,6 +3,31 @@ import re
 from datasets import load_dataset, Dataset
 
 
+def _pick_correct_generation(example: dict) -> str | None:
+    """Return the first correct generation containing <think>...</think>.
+
+    The dataset stores reasoning traces in `generations` (list[str]) with
+    per-generation correctness in `correctness_math_verify` (list[bool]).
+    We pick the first generation that is both correct and has a think block.
+    Falls back to the first generation with a think block if none marked correct.
+    """
+    gens = example.get("generations", [])
+    correct = example.get("correctness_math_verify", [])
+
+    # First pass: correct generation with think block
+    for i, g in enumerate(gens):
+        is_correct = correct[i] if i < len(correct) else False
+        if is_correct and re.search(r"<think>", str(g)):
+            return str(g)
+
+    # Second pass: any generation with think block
+    for g in gens:
+        if re.search(r"<think>", str(g)):
+            return str(g)
+
+    return None
+
+
 def load_openr1(
     n_train: int = 5000,
     n_eval: int = 500,
@@ -14,7 +39,11 @@ def load_openr1(
     Returns {"train": Dataset, "eval": Dataset} with columns:
         problem (str), solution (str), answer (str)
 
-    Filters to examples that contain a <think>...</think> block.
+    The reasoning traces come from the `generations` column (which contains
+    <think>...</think> blocks), not the `solution` column. We pick the first
+    correct generation per example and store it as `solution`.
+
+    Filters to examples that have at least one generation with a <think> block.
     Train and eval subsets are non-overlapping.
     """
     ds = load_dataset(
@@ -24,18 +53,22 @@ def load_openr1(
         cache_dir=cache_dir,
     )
 
-    # Normalize column names: dataset uses "problem" and "solution"
-    required = {"problem", "solution", "answer"}
+    required = {"problem", "answer", "generations"}
     available = set(ds.column_names)
     missing = required - available
     if missing:
         raise ValueError(f"Dataset missing columns: {missing}. Available: {available}")
 
-    # Filter: keep only examples with <think>...</think>
-    def has_think_block(example):
-        return bool(re.search(r"<think>.*?</think>", example["solution"], re.DOTALL))
+    # Map: pick the best generation and store as "solution"
+    def extract_solution(example):
+        gen = _pick_correct_generation(example)
+        example["solution"] = gen if gen is not None else ""
+        return example
 
-    ds = ds.filter(has_think_block, num_proc=4)
+    ds = ds.map(extract_solution, num_proc=4)
+
+    # Filter: keep only examples where we found a think block
+    ds = ds.filter(lambda ex: bool(ex["solution"]), num_proc=4)
 
     # Shuffle deterministically
     ds = ds.shuffle(seed=seed)
