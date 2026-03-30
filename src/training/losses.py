@@ -67,20 +67,18 @@ def segment_summary_loss(
     sum_loss = cross_entropy_loss(logits, targets, sum_loss_mask)
     fin_loss = cross_entropy_loss(logits, targets, fin_loss_mask)
 
-    # Total: weighted equally; final gets same weight
+    # Total: average over the task types that are actually present in this batch.
+    # has_seg/sum/fin is 1.0 if any example of that type appears, else 0.0.
+    has_seg = jnp.minimum(jnp.sum(seg_mask_batch), 1.0)
+    has_sum = jnp.minimum(jnp.sum(sum_mask_batch), 1.0)
+    has_fin = jnp.minimum(jnp.sum(fin_mask_batch), 1.0)
+    n_active = has_seg + has_sum + has_fin  # ∈ {1, 2, 3}
     total_loss = (
-        seg_loss * jnp.clip(jnp.sum(seg_mask_batch), 0, 1)
-        + sum_loss * jnp.clip(jnp.sum(sum_mask_batch), 0, 1)
-        + fin_loss * jnp.clip(jnp.sum(fin_mask_batch), 0, 1)
-    ) / (
-        jnp.clip(jnp.sum(seg_mask_batch), 0, 1)
-        + jnp.clip(jnp.sum(sum_mask_batch), 0, 1)
-        + jnp.clip(jnp.sum(fin_mask_batch), 0, 1)
-        + 1e-8
-    )
+        seg_loss * has_seg + sum_loss * has_sum + fin_loss * has_fin
+    ) / (n_active + 1e-8)
 
     return total_loss, {
-        "segment_loss": float(seg_loss),
-        "summary_loss": float(sum_loss),
-        "final_loss": float(fin_loss),
+        "segment_loss": seg_loss,
+        "summary_loss": sum_loss,
+        "final_loss": fin_loss,
     }

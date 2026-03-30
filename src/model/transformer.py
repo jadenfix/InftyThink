@@ -209,14 +209,13 @@ class CausalLM(nn.Module):
         cfg = self.config
         B, T = input_ids.shape
 
-        # Token embedding
-        embed = nn.Embed(
-            cfg.vocab_size,
-            cfg.d_model,
-            embedding_init=nn.initializers.normal(0.02),
-            name="token_embed",
+        # Token embedding weight — declared explicitly so we can tie to lm_head
+        embed_weight = self.param(
+            "token_embed_weight",
+            nn.initializers.normal(0.02),
+            (cfg.vocab_size, cfg.d_model),
         )
-        x = embed(input_ids)  # (B, T, d_model)
+        x = embed_weight[input_ids]  # (B, T, d_model)
 
         # Pre-compute RoPE cache
         rope_cache = build_rope_cache(T, cfg.head_dim)
@@ -232,7 +231,8 @@ class CausalLM(nn.Module):
 
         # Output projection (optionally tied to embedding)
         if cfg.tie_embeddings:
-            logits = x @ embed.embedding.T
+            # Tied: reuse embed_weight transposed — no extra parameters
+            logits = x @ embed_weight.T
         else:
             logits = nn.Dense(cfg.vocab_size, use_bias=False, name="lm_head")(x)
 

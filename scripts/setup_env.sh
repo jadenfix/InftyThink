@@ -8,7 +8,8 @@ cd "$REPO_ROOT"
 if ! command -v uv &>/dev/null; then
     echo "Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
+    # uv installs to ~/.local/bin on Linux/macOS (cargo path is legacy)
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 
 # Create venv

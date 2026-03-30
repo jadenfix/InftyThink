@@ -70,7 +70,10 @@ def generate_vanilla_cot(
         "answer": answer,
         "reasoning": reasoning,
         "tokens_used": n_gen,
+        "total_tokens": n_gen,
         "prompt_tokens": prompt_tokens,
+        # For vanilla CoT the full prompt+generation is the context at each token
+        "peak_context_len": prompt_tokens + n_gen,
     }
 
 

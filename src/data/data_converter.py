@@ -97,6 +97,8 @@ def convert_example(
     if not segments:
         return []
 
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
     instances: list[dict] = []
     running_summaries: list[str] = []
     n_steps = 2 * len(segments) + 1  # seg, sum, seg, sum, ..., final
@@ -105,20 +107,20 @@ def convert_example(
         # --- segment step ---
         inp = build_segment_input(problem, running_summaries, tokenizer, max_seq_len)
         tgt = _encode(seg, tokenizer, segment_len)
-        instances.append(_make_instance(inp, tgt, TASK_SEGMENT, 2 * i, n_steps, max_seq_len))
+        instances.append(_make_instance(inp, tgt, TASK_SEGMENT, 2 * i, n_steps, max_seq_len, pad_id))
 
         # --- summary step ---
         summary = heuristic_summary(seg, tokenizer, max_summary_tokens=summary_len)
         inp_s = build_summary_input(problem, running_summaries, seg, tokenizer, max_seq_len)
         tgt_s = _encode(summary, tokenizer, summary_len)
-        instances.append(_make_instance(inp_s, tgt_s, TASK_SUMMARY, 2 * i + 1, n_steps, max_seq_len))
+        instances.append(_make_instance(inp_s, tgt_s, TASK_SUMMARY, 2 * i + 1, n_steps, max_seq_len, pad_id))
 
         running_summaries.append(summary)
 
     # --- final answer step ---
     inp_f = build_final_input(problem, running_summaries, tokenizer, max_seq_len)
     tgt_f = _encode(answer, tokenizer, 128)
-    instances.append(_make_instance(inp_f, tgt_f, TASK_FINAL, n_steps - 1, n_steps, max_seq_len))
+    instances.append(_make_instance(inp_f, tgt_f, TASK_FINAL, n_steps - 1, n_steps, max_seq_len, pad_id))
 
     return instances
 
@@ -141,13 +143,13 @@ def _make_instance(
     step: int,
     n_steps: int,
     max_seq_len: int,
+    pad_id: int = 0,
 ) -> dict:
     """Pack input + target into a padded training instance with a loss mask.
 
     The sequence is: [input_ids ... target_ids ... <pad>]
     loss_mask is 1.0 only on target token positions.
     """
-    pad_id = 0  # will be set properly when tokenizer is available; use 0 as default
     inp_ids = inp["input_ids"]
     tgt_ids = tgt["input_ids"]
 

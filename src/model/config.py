@@ -65,9 +65,9 @@ class ModelConfig:
         embed = self.vocab_size * self.d_model
         per_layer = (
             4 * self.d_model * self.d_model   # Q, K, V, O projections
-            + 2 * self.d_model * self.d_ff     # FFN up + down (SwiGLU uses 3 matrices)
-            + self.d_ff * self.d_model         # SwiGLU gate
-            + 2 * self.d_model                 # 2x RMSNorm scale params
+            + 2 * self.d_model * self.d_ff     # SwiGLU up + down projections
+            + self.d_ff * self.d_model         # SwiGLU gate projection
+            + 2 * self.d_model                 # 2x RMSNorm scale params (pre-norm)
         )
         total = embed + self.n_layers * per_layer
         if not self.tie_embeddings:

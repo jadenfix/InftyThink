@@ -98,10 +98,9 @@ def run_structured_iterative(
         consistency_checks.append(check)
         states.append(dict(current_state))
 
-        # Count tokens for state serialization
+        # Charge the serialized state against the token budget (it goes into the next prompt)
         state_text = state_to_text(current_state)
         total_tokens += token_count(state_text, tokenizer)
-        tokens_per_step.append(token_count(state_text, tokenizer))
 
     # --- Final answer step ---
     final_prompt = _build_structured_final_prompt(problem, states)

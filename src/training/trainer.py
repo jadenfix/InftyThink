@@ -82,28 +82,19 @@ def create_train_state(
 
 
 # ---------------------------------------------------------------------------
-# Single training step (JIT-compiled)
+# Single micro-batch gradient computation (JIT-compiled, no update)
 # ---------------------------------------------------------------------------
 
 @jax.jit
-def train_step(
+def _compute_grads(
     state: InftyThinkTrainState,
     batch: dict,
     dropout_rng: jax.random.PRNGKey,
-) -> tuple[InftyThinkTrainState, dict]:
-    """One gradient step.
-
-    Args:
-        state: current TrainState
-        batch: dict with keys:
-            "input_ids":  (batch, seq_len) int32
-            "target_ids": (batch, seq_len) int32
-            "loss_mask":  (batch, seq_len) float32
-            "task_flags": (batch,) int32  0=segment 1=summary 2=final
-        dropout_rng: JAX PRNG key for dropout
+) -> tuple[Any, jnp.ndarray, dict]:
+    """Compute gradients for one micro-batch without applying them.
 
     Returns:
-        (updated_state, metrics_dict)
+        (grads pytree, loss scalar, breakdown dict)
     """
     def loss_fn(params):
         logits = state.apply_fn(
@@ -121,13 +112,71 @@ def train_step(
         return total_loss, breakdown
 
     (loss, breakdown), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
-    state = state.apply_gradients(grads=grads)
+    return grads, loss, breakdown
+
+
+@jax.jit
+def _apply_grads(
+    state: InftyThinkTrainState,
+    grads,
+) -> InftyThinkTrainState:
+    """Apply accumulated gradients to the optimizer state."""
+    return state.apply_gradients(grads=grads)
+
+
+def train_step(
+    state: InftyThinkTrainState,
+    micro_batches: list[dict],
+    dropout_rng: jax.random.PRNGKey,
+) -> tuple[InftyThinkTrainState, dict]:
+    """One optimizer step over `grad_accumulation_steps` micro-batches.
+
+    Gradients are accumulated (averaged) across all micro-batches before
+    the parameter update, matching an effective batch size of
+    batch_size * grad_accumulation_steps.
+
+    Args:
+        state: current TrainState
+        micro_batches: list of micro-batch dicts, each with:
+            "input_ids":  (micro_batch, seq_len) int32
+            "target_ids": (micro_batch, seq_len) int32
+            "loss_mask":  (micro_batch, seq_len) float32
+            "task_flags": (micro_batch,) int32
+        dropout_rng: JAX PRNG key (split per micro-batch)
+
+    Returns:
+        (updated_state, metrics_dict)
+    """
+    n = len(micro_batches)
+    accumulated_grads = None
+    total_loss = 0.0
+    total_seg_loss = 0.0
+    total_sum_loss = 0.0
+    total_fin_loss = 0.0
+
+    for i, mb in enumerate(micro_batches):
+        rng_i = jax.random.fold_in(dropout_rng, i)
+        grads, loss, breakdown = _compute_grads(state, mb, rng_i)
+
+        total_loss += float(loss) / n
+        total_seg_loss += breakdown["segment_loss"] / n
+        total_sum_loss += breakdown["summary_loss"] / n
+        total_fin_loss += breakdown["final_loss"] / n
+
+        if accumulated_grads is None:
+            accumulated_grads = jax.tree_util.tree_map(lambda g: g / n, grads)
+        else:
+            accumulated_grads = jax.tree_util.tree_map(
+                lambda acc, g: acc + g / n, accumulated_grads, grads
+            )
+
+    state = _apply_grads(state, accumulated_grads)
 
     metrics = {
-        "loss": float(loss),
-        "segment_loss": breakdown["segment_loss"],
-        "summary_loss": breakdown["summary_loss"],
-        "final_loss": breakdown["final_loss"],
+        "loss": total_loss,
+        "segment_loss": total_seg_loss,
+        "summary_loss": total_sum_loss,
+        "final_loss": total_fin_loss,
         "step": int(state.step),
     }
     return state, metrics
@@ -151,10 +200,10 @@ def eval_step(
         batch["task_flags"],
     )
     return {
-        "loss": float(total_loss),
-        "segment_loss": breakdown["segment_loss"],
-        "summary_loss": breakdown["summary_loss"],
-        "final_loss": breakdown["final_loss"],
+        "loss": total_loss,
+        "segment_loss": jnp.array(breakdown["segment_loss"]),
+        "summary_loss": jnp.array(breakdown["summary_loss"]),
+        "final_loss": jnp.array(breakdown["final_loss"]),
     }
 
 
@@ -231,18 +280,24 @@ def train(
 
     pbar = tqdm(total=config.max_steps, desc="Training")
 
+    acc_steps = config.grad_accumulation_steps
+
     while step < config.max_steps:
         epoch += 1
-        batches = make_batches(train_instances, config.batch_size, np_rng, shuffle=True)
+        # Each "batch" is one micro-batch of size batch_size.
+        # We group acc_steps micro-batches into one optimizer step.
+        micro_batches = make_batches(train_instances, config.batch_size, np_rng, shuffle=True)
 
-        for batch in batches:
+        # Iterate in chunks of acc_steps
+        for chunk_start in range(0, len(micro_batches) - acc_steps + 1, acc_steps):
             if step >= config.max_steps:
                 break
 
-            rng, dropout_rng = jax.random.split(rng)
-            batch_jax = {k: jnp.array(v) for k, v in batch.items()}
+            chunk = micro_batches[chunk_start: chunk_start + acc_steps]
+            chunk_jax = [{k: jnp.array(v) for k, v in mb.items()} for mb in chunk]
 
-            state, metrics = train_step(state, batch_jax, dropout_rng)
+            rng, dropout_rng = jax.random.split(rng)
+            state, metrics = train_step(state, chunk_jax, dropout_rng)
             step += 1
             pbar.update(1)
             pbar.set_postfix(loss=f"{metrics['loss']:.4f}")

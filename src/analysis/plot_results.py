@@ -138,9 +138,9 @@ def plot_ablation_line(
 
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(x_vals, y_vals, marker="o", linewidth=2, color=PALETTE[0])
-    ax.fill_between(range(len(x_vals)), ci_lo, ci_hi,
+    ax.fill_between(x_vals, ci_lo, ci_hi,
                     alpha=0.2, color=PALETTE[0], label="95% CI")
-    ax.set_xticks(range(len(x_vals)))
+    ax.set_xticks(x_vals)
     ax.set_xticklabels([str(x) for x in x_vals])
     ax.set_xlabel(x_label)
     ax.set_ylabel(metric.replace("_", " ").title())
@@ -294,7 +294,6 @@ def plot_structured_vs_freeform(
 
 def generate_all_figures(results_dir: str = "results"):
     """Load all result JSONs and generate all 9 figures."""
-    import glob
 
     def _load(path):
         if os.path.exists(path):

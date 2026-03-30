@@ -11,3 +11,4 @@ tqdm==4.66.4
 sentencepiece==0.2.0
 evaluate==0.4.2
 einops==0.8.0
+pyyaml==6.0.1

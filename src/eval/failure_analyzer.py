@@ -82,26 +82,35 @@ def _check_constraint_loss(problem: str, summaries: list[str]) -> bool:
 
 
 def _check_numeric_drift(segments: list[str], summaries: list[str]) -> bool:
-    """True if a specific number appears in one segment but changes in a later summary."""
+    """True if a number established in an early segment appears mutated in a later summary.
+
+    Drift criterion: number N from segment 0 appears in a later summary as N' where
+    N' is close but not equal to N (within 10% of N), suggesting a transcription error.
+    This requires the number to appear in both places (not just two arbitrary numbers).
+    """
     if len(segments) < 2 or len(summaries) < 2:
         return False
 
-    # Find numbers established in segment 0
     early_nums = set(_extract_numbers(segments[0]))
+    # Only flag if we also see a version of that number appear in the summary (mutation)
     for summary in summaries[1:]:
         summary_nums = set(_extract_numbers(summary))
-        # Check if any number from the first segment changed to a *different* number
-        # (approximate: if the sets differ substantially)
-        if early_nums and summary_nums:
-            # Look for close-but-not-equal numbers (e.g. 2.5 vs 2.50001)
-            for en in early_nums:
-                for sn in summary_nums:
-                    try:
-                        if abs(float(en) - float(sn)) > 1e-6 and abs(float(en) - float(sn)) < 10:
-                            # A nearby but different value — possible drift
-                            return True
-                    except ValueError:
-                        pass
+        for en in early_nums:
+            try:
+                en_f = float(en)
+            except ValueError:
+                continue
+            if en_f == 0:
+                continue
+            for sn in summary_nums:
+                try:
+                    sn_f = float(sn)
+                except ValueError:
+                    continue
+                # Same magnitude but different value: relative error 1e-4 to 20%
+                rel_err = abs(en_f - sn_f) / abs(en_f)
+                if 1e-4 < rel_err < 0.20:
+                    return True
     return False
 
 
