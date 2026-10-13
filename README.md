@@ -297,3 +297,12 @@ python main.py stats         # Print model/tokenizer parameter counts
 
 > *InftyThink: Breaking the Length Limits of Long-Context Reasoning in Large Language Models*
 > arxiv:2503.06692
+
+## Download-free computational smoke
+
+```sh
+JAX_PLATFORMS=cpu python -m src.training.smoke --output results/tiny-smoke
+python -m pytest -q tests/test_training_smoke.py
+```
+
+This explicitly synthetic lane trains a randomly initialized tiny transformer for two optimizer steps, checks finite losses and changed parameters, saves and reloads every checkpoint parameter, then generates two tokens from the restored model. It uses no tokenizer/model/data downloads and makes no math-accuracy claim. The checkpoint currently stores parameters only; it does not support faithful optimizer-state resume.
