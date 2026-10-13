@@ -302,7 +302,14 @@ python main.py stats         # Print model/tokenizer parameter counts
 
 ```sh
 JAX_PLATFORMS=cpu python -m src.training.smoke --output results/tiny-smoke
-python -m pytest -q tests/test_training_smoke.py
+python -m pytest -q tests/test_training_smoke.py tests/test_training_progress.py
 ```
 
 This explicitly synthetic lane trains a randomly initialized tiny transformer for two optimizer steps, checks finite losses and changed parameters, saves and reloads every checkpoint parameter, then generates two tokens from the restored model. It uses no tokenizer/model/data downloads and makes no math-accuracy claim. The checkpoint currently stores parameters only; it does not support faithful optimizer-state resume.
+
+The progress tests also run the full training loop at the exact effective-batch
+boundary, including evaluation, logging and checkpoint output. A positive-step
+run needs at least `batch_size * grad_accumulation_steps` converted training
+instances. Smaller input now raises an error before model initialization or
+output creation; reduce those batch dimensions or provide more instances.
+This guards against an epoch loop that never reaches an optimizer update.

@@ -262,6 +262,16 @@ def train(
     Returns:
         Final TrainState.
     """
+    if config.batch_size <= 0 or config.grad_accumulation_steps <= 0:
+        raise ValueError("batch_size and grad_accumulation_steps must be positive")
+    required = config.batch_size * config.grad_accumulation_steps
+    if config.max_steps > 0 and len(train_instances) < required:
+        raise ValueError(
+            f"Need at least {required} training instances for one accumulated "
+            f"optimizer step; got {len(train_instances)}. Reduce the batch dimensions "
+            "or provide more training instances."
+        )
+
     os.makedirs(config.checkpoint_dir, exist_ok=True)
     os.makedirs(os.path.dirname(config.log_dir) or ".", exist_ok=True)
     log_file = open(config.log_dir, "a")
