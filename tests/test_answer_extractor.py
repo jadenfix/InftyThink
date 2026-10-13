@@ -12,6 +12,7 @@ class AnswerEvaluationTests(unittest.TestCase):
                 self.assertFalse(answers_match(answer, "0.6"))
         self.assertTrue(answers_match(r"\boxed{\frac{-3}{4}}", "-0.75"))
         self.assertTrue(answers_match(r"\frac{3}{-4}", "-0.75"))
+        self.assertTrue(answers_match(r"\frac{-3}{-4}", "0.75"))
 
     def test_invalid_outputs_never_count_as_correct(self):
         for answer in ("", " ", "nan", "inf", "-inf", "1e999", None):

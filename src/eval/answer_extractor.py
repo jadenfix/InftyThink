@@ -49,8 +49,8 @@ def normalize_answer(ans: str) -> str:
     if frac_match:
         sign, num, den = frac_match.groups()
         if int(den) != 0:
-            val = int(num) / int(den)
-            s = f"{'-' if sign else ''}{val:.10f}".rstrip("0").rstrip(".")
+            val = (-1 if sign else 1) * int(num) / int(den)
+            s = f"{val:.10f}".rstrip("0").rstrip(".")
     # Try to parse as float and normalize
     else:
         try:
