@@ -1,0 +1,150 @@
+{
+  "scope": "synthetic tokens and randomly initialized tiny CPU model; no math-accuracy claim",
+  "claims_excluded": [
+    "math accuracy",
+    "paper reproduction",
+    "model quality",
+    "performance",
+    "live data",
+    "provider integration"
+  ],
+  "source_sha": "9ec9c593115edacea57c41387d46494b053d5f11",
+  "source_tree": "60ec91794991f93abe83402512647c7f0a2de6e7",
+  "capture_command": "JAX_PLATFORMS=cpu OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 /dev/shm/inftythink-c49/bin/python scripts/capture_demo.py --source-sha 9ec9c593115edacea57c41387d46494b053d5f11 --python /dev/shm/inftythink-c49/bin/python --output-dir docs/demo",
+  "python": "3.12.14",
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "smoke_stdout": "Saved checkpoint: /tmp/inftythink-demo-uq0ln76r/smoke/checkpoints/step_0000002\n{\n  \"scope\": \"synthetic tokens and randomly initialized tiny CPU model; no math-accuracy claim\",\n  \"steps\": 2,\n  \"losses\": [\n    3.4754722118377686,\n    3.4506187438964844\n  ],\n  \"parameter_delta_l1\": 4.612483620643616,\n  \"checkpoint_parameter_roundtrip\": true,\n  \"generated_tokens\": 2,\n  \"generated_shape\": [\n    1,\n    4\n  ],\n  \"evaluation_examples\": 9,\n  \"evaluation_batches\": 2,\n  \"evaluation_tail_included\": true,\n  \"evaluation_loss\": 3.43835457166036\n}\n",
+  "smoke_receipt": {
+    "scope": "synthetic tokens and randomly initialized tiny CPU model; no math-accuracy claim",
+    "steps": 2,
+    "losses": [
+      3.4754722118377686,
+      3.4506187438964844
+    ],
+    "parameter_delta_l1": 4.612483620643616,
+    "checkpoint_parameter_roundtrip": true,
+    "generated_tokens": 2,
+    "generated_shape": [
+      1,
+      4
+    ],
+    "evaluation_examples": 9,
+    "evaluation_batches": 2,
+    "evaluation_tail_included": true,
+    "evaluation_loss": 3.43835457166036
+  },
+  "runtime_inputs": [
+    {
+      "path": "scripts/capture_demo.py",
+      "git_blob": "21da2d8d544d0f893e6595411af6c7449a9961d4",
+      "sha256": "361087b28527d56cae1f63135b09167875f4fa81a7bd5e45c1c10ff7d183c5ba"
+    },
+    {
+      "path": "src/model/config.py",
+      "git_blob": "3914ec12075a00dca8582be89182939351d467c6",
+      "sha256": "5d8e7821ce61c376616c59a9a4bb80bafb9c4e38820383846e1b29d68a8e1c8d"
+    },
+    {
+      "path": "src/model/transformer.py",
+      "git_blob": "df8c02b07d23e4afbc9dbde7f7cd591f666c2f14",
+      "sha256": "0a637d4a67ddb50b0a095df1b0145298d766774d735de1c839cf585af4593675"
+    },
+    {
+      "path": "src/training/checkpointer.py",
+      "git_blob": "70b7959fc887c1ec64cbe76b3a1c76a915f20000",
+      "sha256": "e39701269670fea11ab2a2af0a48bdfcd53275a138575f89d1c344f759545cf8"
+    },
+    {
+      "path": "src/training/losses.py",
+      "git_blob": "08fb84eb84cd9a07c2497c61951bfd2eaa71a8c7",
+      "sha256": "fd4982c1193bd29bfc62a9f1c54b3310ee4d3f1d7da318c59cdf56bebb35f4dc"
+    },
+    {
+      "path": "src/training/lr_schedule.py",
+      "git_blob": "977283ce08cf5a29999e22600cf9f5b175c2056e",
+      "sha256": "3a5a58302c8d8c7d588e97e5dcd3542efe14d4d594cfc5f9c4ebc8cb91c88c87"
+    },
+    {
+      "path": "src/training/smoke.py",
+      "git_blob": "7dca1b5cfd69a402ed7945dc56ef3fb17c916879",
+      "sha256": "c39be813439efbf5e96dbfbfe30b76a9e7a10d040c8ffd5ba1b46fbed8498f47"
+    },
+    {
+      "path": "src/training/trainer.py",
+      "git_blob": "c9297bf6fde0206e973db6d87c43252f29e277b3",
+      "sha256": "bb43545d4f5854b714cfbc1bd517b65a95e6e5fe260273dce86a60a9f650ebdd"
+    },
+    {
+      "path": "requirements-smoke.in",
+      "git_blob": "ae3f8fd6c6e23742086bd8068c7601b8813c98cc",
+      "sha256": "51be4359a9eb931c0c80aa81729508aae1992e43f3478b42b713de6e8115fe61"
+    },
+    {
+      "path": "requirements-smoke.txt",
+      "git_blob": "2f4ee257adea7e6a9d6cd4a6fe55366b900fa8f0",
+      "sha256": "6bade94014a3f90ecf0da89ee08bd9b9109997cd17295f2f8a9f4e1cd01f8e31"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/demo/inftythink-evaluation-integrity.gif",
+      "bytes": 194475,
+      "sha256": "27221e5609952b93c22084d482c1a30d37e4d569a35523d645145577adf362cb",
+      "git_blob": "275b7011b36cdf56e82bdd69864d619661b5b886",
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "gif",
+            "width": 960,
+            "height": 600,
+            "duration": "12.800000",
+            "nb_read_frames": "128"
+          }
+        ],
+        "format": {
+          "duration": "12.800000"
+        }
+      }
+    },
+    {
+      "path": "docs/demo/inftythink-evaluation-integrity.mp4",
+      "bytes": 144394,
+      "sha256": "629d515c0832be9170f278acc4a600c217c17007adba900bdcbc858850326c65",
+      "git_blob": "963630f9f54754d0902d1238a0baab8399604a97",
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1440,
+            "height": 900,
+            "duration": "12.800000",
+            "nb_read_frames": "384"
+          }
+        ],
+        "format": {
+          "duration": "12.800000"
+        }
+      }
+    },
+    {
+      "path": "docs/demo/inftythink-evaluation-integrity.png",
+      "bytes": 134537,
+      "sha256": "5ac6a03bf5b8907e448ce8c5715bbf19ed7538f10be68c9b1b0f6a4d13704f44",
+      "git_blob": "4eae25dbf3f3321bcc6ee2a587991822c90a47c9",
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "png",
+            "width": 1440,
+            "height": 900,
+            "nb_read_frames": "1"
+          }
+        ],
+        "format": {}
+      }
+    }
+  ]
+}
