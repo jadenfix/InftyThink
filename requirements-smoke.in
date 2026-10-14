@@ -1,0 +1,9 @@
+jax[cpu]==0.4.30
+flax==0.10.0
+optax==0.2.3
+numpy==1.26.4
+scipy==1.13.0
+tqdm==4.66.4
+pytest==8.3.3
+pyyaml==6.0.1
+transformers==4.40.0

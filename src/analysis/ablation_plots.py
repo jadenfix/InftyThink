@@ -75,26 +75,3 @@ def plot_ablation_heatmap(
     plt.close()
     print(f"Saved: {path}")
     return path
-
-
-def build_2d_grid_from_runs(
-    a1_results: dict,
-    a2_results: dict,
-) -> dict:
-    """Construct a 2D results grid from two independent 1D ablation results.
-
-    This approximates a joint sweep by combining A1 (segment_len) and
-    A2 (summary_len) results, using M1 defaults for the non-swept parameter.
-
-    Returns nested dict: {segment_len: {summary_len: metrics_dict}}
-    """
-    grid = {}
-    for seg_len, seg_metrics in a1_results.items():
-        grid[seg_len] = {}
-        for sum_len, sum_metrics in a2_results.items():
-            # Use accuracy from A1 for this segment_len as the primary value
-            # This is an approximation; a true joint sweep would be preferred.
-            grid[seg_len][sum_len] = {
-                "accuracy": (seg_metrics.get("accuracy", 0) + sum_metrics.get("accuracy", 0)) / 2
-            }
-    return grid

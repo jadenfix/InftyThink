@@ -12,7 +12,7 @@ import numpy as np
 from src.model.config import ModelConfig
 from src.model.transformer import CausalLM
 from src.training.checkpointer import load_checkpoint, save_checkpoint
-from src.training.trainer import TrainConfig, create_train_state, train_step
+from src.training.trainer import TrainConfig, _run_eval, create_train_state, train_step
 
 
 def run_smoke(output: Path) -> dict:
@@ -44,10 +44,27 @@ def run_smoke(output: Path) -> dict:
     generated, count = model.generate(restored, ids[:1, :2], max_new_tokens=2, temperature=0.0)
     if count != 2 or generated.shape != (1, 4):
         raise RuntimeError("Checkpoint-backed generation produced unexpected shape")
+    tasks = ("segment", "summary", "final")
+    eval_instances = [
+        {
+            "input_ids": np.asarray(ids[i % 3]),
+            "target_ids": np.asarray((ids[i % 3] + 1) % 32),
+            "loss_mask": np.ones(8, dtype=np.float32),
+            "task": tasks[i % len(tasks)],
+        }
+        for i in range(9)
+    ]
+    eval_metrics = _run_eval(state, eval_instances, batch_size=8)
+    if eval_metrics["examples_evaluated"] != 9 or eval_metrics["batches_evaluated"] != 2:
+        raise RuntimeError("Evaluation tail was not fully accounted for")
     receipt = {"scope": "synthetic tokens and randomly initialized tiny CPU model; no math-accuracy claim",
                "steps": int(state.step), "losses": losses, "parameter_delta_l1": delta,
                "checkpoint_parameter_roundtrip": True, "generated_tokens": int(count),
-               "generated_shape": list(generated.shape)}
+               "generated_shape": list(generated.shape),
+               "evaluation_examples": eval_metrics["examples_evaluated"],
+               "evaluation_batches": eval_metrics["batches_evaluated"],
+               "evaluation_tail_included": True,
+               "evaluation_loss": eval_metrics["loss"]}
     output.mkdir(parents=True, exist_ok=True)
     (output / "smoke.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt

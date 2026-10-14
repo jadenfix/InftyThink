@@ -8,4 +8,7 @@ def test_tiny_training_checkpoint_and_generation(tmp_path):
     assert receipt["parameter_delta_l1"] > 0
     assert receipt["checkpoint_parameter_roundtrip"]
     assert receipt["generated_tokens"] == 2
+    assert receipt["evaluation_examples"] == 9
+    assert receipt["evaluation_batches"] == 2
+    assert receipt["evaluation_tail_included"]
     assert (tmp_path / "smoke.json").is_file()

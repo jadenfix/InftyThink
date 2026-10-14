@@ -2,9 +2,9 @@
 
 Usage:
     python main.py prepare-data   [--n-train N] [--n-eval N] [--tokenizer gpt2]
-    python main.py train          [--config configs/base.yaml] [--checkpoint PATH]
+    python main.py train          [--config configs/base.yaml]
     python main.py evaluate       [--method METHOD] [--checkpoint PATH] [--n-eval N]
-    python main.py run-experiment [--name EXPERIMENT_NAME] [--config PATH]
+    python main.py run-experiment [--name EXPERIMENT_NAME]
     python main.py analyze        [--results-dir results/]
     python main.py stats          [--n N]
 """
@@ -51,6 +51,11 @@ def cmd_prepare_data(args):
 
 
 def cmd_train(args):
+    if args.checkpoint:
+        raise ValueError(
+            "Training checkpoint resume is not implemented: checkpoints contain "
+            "parameters but not optimizer state. Refusing to restart or overwrite."
+        )
     import jax
     import yaml
     from src.model.config import ModelConfig
@@ -113,12 +118,9 @@ def cmd_train(args):
             summary_len=sum_len,
             max_seq_len=model_config.max_seq_len,
         )
-        eval_instances.extend(instances[:4])  # limit eval instances per example
+        eval_instances.extend(_select_training_eval_instances(instances))
 
     print(f"Train instances: {len(train_instances)}, Eval instances: {len(eval_instances)}")
-
-    if args.checkpoint:
-        train_cfg.checkpoint_dir = os.path.dirname(args.checkpoint) or "checkpoints/"
 
     train(model, model_config, train_instances, eval_instances, train_cfg)
 
@@ -126,16 +128,14 @@ def cmd_train(args):
 def cmd_evaluate(args):
     from functools import partial
     from src.model.tokenizer import load_tokenizer
-    from src.data.dataset_loader import load_openr1
     from src.eval.evaluator import evaluate
-    from experiments._base import load_model_and_params
+    from experiments._base import load_eval_dataset, load_model_and_params
 
     model, params, model_config = load_model_and_params(
         checkpoint_path=args.checkpoint
     )
     tokenizer = load_tokenizer()
-    datasets = load_openr1(n_train=100, n_eval=args.n_eval, seed=42)
-    eval_ds = datasets["eval"]
+    eval_ds = load_eval_dataset(n_eval=args.n_eval)
 
     METHOD_MAP = {
         "vanilla_cot": _make_vanilla_cot_fn,
@@ -160,6 +160,17 @@ def cmd_evaluate(args):
         out_path=out_path,
         method_name=args.method,
     )
+
+
+def _select_training_eval_instances(instances: list[dict], limit: int = 4) -> list[dict]:
+    """Cap converted eval instances while retaining the final-answer task."""
+    if len(instances) <= limit:
+        return instances
+    selected = instances[:limit - 1]
+    final = instances[-1]
+    if final.get("task") != "final":
+        raise ValueError("Converted example must end with a final task")
+    return [*selected, final]
 
 
 def _make_vanilla_cot_fn():
@@ -213,29 +224,8 @@ def cmd_run_experiment(args):
 
 def cmd_analyze(args):
     from src.analysis.plot_results import generate_all_figures
-    from src.analysis.ablation_plots import plot_ablation_heatmap, build_2d_grid_from_runs
-    import json
 
     generate_all_figures(args.results_dir)
-
-    # Bonus: 2D heatmap if both A1 and A2 results exist
-    a1_path = os.path.join(args.results_dir, "ablations/a1_segment_length.json")
-    a2_path = os.path.join(args.results_dir, "ablations/a2_summary_length.json")
-    if os.path.exists(a1_path) and os.path.exists(a2_path):
-        with open(a1_path) as f:
-            a1 = json.load(f)
-        with open(a2_path) as f:
-            a2 = json.load(f)
-        grid = build_2d_grid_from_runs(a1, a2)
-        plot_ablation_heatmap(
-            grid,
-            x_param="segment_len",
-            y_param="summary_len",
-            metric="accuracy",
-            x_vals=[64, 128, 256],
-            y_vals=[16, 32, 64],
-            title="Accuracy: segment_len × summary_len (approximate)",
-        )
 
 
 def cmd_stats(args):
@@ -273,7 +263,12 @@ def build_parser() -> argparse.ArgumentParser:
     # train
     p = sub.add_parser("train", help="Train the model")
     p.add_argument("--config", type=str, default="configs/base.yaml")
-    p.add_argument("--checkpoint", type=str, default=None)
+    p.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="unsupported for training; fails closed because optimizer state is not stored",
+    )
 
     # evaluate
     p = sub.add_parser("evaluate", help="Evaluate a method on the eval set")
@@ -285,9 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-eval", type=int, default=500)
 
     # run-experiment
-    p = sub.add_parser("run-experiment", help="Run a named experiment script")
+    p = sub.add_parser("run-experiment", help="Run a named experiment using configs/base.yaml")
     p.add_argument("--name", type=str, required=True)
-    p.add_argument("--config", type=str, default="configs/base.yaml")
 
     # analyze
     p = sub.add_parser("analyze", help="Generate all figures from saved results")

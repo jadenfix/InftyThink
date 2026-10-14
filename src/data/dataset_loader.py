@@ -1,6 +1,9 @@
 """Load and subset OpenR1-Math-220k from HuggingFace."""
 import re
-from datasets import load_dataset, Dataset
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datasets import Dataset
 
 
 def _pick_correct_generation(example: dict) -> str | None:
@@ -8,8 +11,9 @@ def _pick_correct_generation(example: dict) -> str | None:
 
     The dataset stores reasoning traces in `generations` (list[str]) with
     per-generation correctness in `correctness_math_verify` (list[bool]).
-    We pick the first generation that is both correct and has a think block.
-    Falls back to the first generation with a think block if none marked correct.
+    We pick the first generation that is both verified correct and has a think
+    block. Examples without such a generation are excluded rather than pairing
+    an incorrect trace with the gold answer.
     """
     gens = example.get("generations", [])
     correct = example.get("correctness_math_verify", [])
@@ -20,11 +24,6 @@ def _pick_correct_generation(example: dict) -> str | None:
         if is_correct and re.search(r"<think>", str(g)):
             return str(g)
 
-    # Second pass: any generation with think block
-    for g in gens:
-        if re.search(r"<think>", str(g)):
-            return str(g)
-
     return None
 
 
@@ -33,7 +32,7 @@ def load_openr1(
     n_eval: int = 500,
     seed: int = 42,
     cache_dir: str = None,
-) -> dict[str, Dataset]:
+) -> dict[str, "Dataset"]:
     """Load open-r1/OpenR1-Math-220k default split.
 
     Returns {"train": Dataset, "eval": Dataset} with columns:
@@ -43,9 +42,12 @@ def load_openr1(
     <think>...</think> blocks), not the `solution` column. We pick the first
     correct generation per example and store it as `solution`.
 
-    Filters to examples that have at least one generation with a <think> block.
+    Filters to examples that have at least one verified-correct generation with
+    a <think> block.
     Train and eval subsets are non-overlapping.
     """
+    from datasets import load_dataset
+
     ds = load_dataset(
         "open-r1/OpenR1-Math-220k",
         "default",

@@ -2,7 +2,11 @@
 
 A JAX/CPU reproduction and extension of [InftyThink (arxiv:2503.06692)](https://arxiv.org/abs/2503.06692) — iterative reasoning with bounded segments and progress summaries on mathematical problem solving.
 
-**Core claim**: generating reasoning in short segments with a compressed summary at each step matches or outperforms vanilla chain-of-thought at equal token budget, while keeping peak context length bounded.
+**Research hypothesis**: generating reasoning in short segments with a compressed
+summary at each step may match or outperform vanilla chain-of-thought at an equal
+token budget while bounding peak context growth. This repository is an
+experimental reproduction scaffold; it does not contain evidence establishing
+that accuracy or performance claim.
 
 ---
 
@@ -19,10 +23,16 @@ generate final answer           | [question, summary_1..summary_T]
 
 - **Segment** (`K=128` tokens): the model reasons freely for a bounded window
 - **Summary** (`S=32` tokens): the model compresses its progress into a key-facts digest
-- **Context** at each step: question + all prior summaries (never the full trace)
-- **Peak context** is bounded by `len(question) + T*S` regardless of reasoning depth
+- **Context** at each segment step: question + all prior summaries (never the full trace)
+- **Context scope** is intended to grow with summaries rather than the full trace;
+  summary steps also include the current segment, generation adds current-step
+  tokens, and the model truncates to `max_seq_len`. Cross-method peak-context
+  accounting is not yet harmonized and is not a verified result here.
 
-This is compared against 4 baselines under the same 2048-token total budget.
+This scaffold defines four comparison baselines. Their configured generation
+caps are not all identical (for example, vanilla CoT defaults to 2048 tokens
+and capped CoT to 768), so comparisons must report each configured cap and
+observed token use rather than claim an equal budget.
 
 ---
 
@@ -40,7 +50,8 @@ This will:
 3. Install all pinned dependencies with `uv pip install -r requirements.txt`
 4. Verify JAX CPU backend (`[CpuDevice]`)
 
-All experiments run on **CPU only** (`JAX_PLATFORMS=cpu`). No GPU required.
+The download-free smoke workflow runs on **CPU only** (`JAX_PLATFORMS=cpu`).
+The larger research scripts can use the separately pinned GPU environment.
 
 **Key dependencies** (pinned in `requirements.txt`):
 | Package | Version |
@@ -66,7 +77,7 @@ bash scripts/setup_env.sh
 # 2. Download and preprocess data (5k train / 500 eval from OpenR1-Math-220k)
 bash scripts/prepare_data.sh
 
-# 3. Train the model (~60M params, 10k steps)
+# 3. Train the configured model (~51M parameter estimate, 10k steps)
 source .venv/bin/activate
 python main.py train --config configs/base.yaml
 
@@ -81,7 +92,9 @@ python main.py analyze --results-dir results/
 
 ## Model Architecture
 
-Decoder-only transformer, CPU-feasible at ~60M parameters.
+Decoder-only transformer. With the dynamically loaded GPT-2 vocabulary, the
+default configuration is approximately 51M parameters; this is a configuration
+estimate, not a measured speed or memory claim.
 
 | Hyperparameter | Value |
 |---------------|-------|
@@ -110,12 +123,16 @@ Decoder-only transformer, CPU-feasible at ~60M parameters.
 | Gradient clip | 1.0 |
 | Optimizer | AdamW |
 
-Training data: **5,000 examples** from `open-r1/OpenR1-Math-220k`, filtered to those containing `<think>...</think>` reasoning traces. Each example is segmented and converted into (segment, summary, final) training instances.
+The configured training data is **5,000 examples** from
+`open-r1/OpenR1-Math-220k`, filtered to generations that contain
+`<think>...</think>` and are explicitly marked correct by the dataset's math
+verifier. Examples without a verified-correct trace are excluded. Each retained
+example is segmented and converted into (segment, summary, final) instances.
 
 ```bash
 python main.py train --config configs/base.yaml
 # Checkpoints saved to checkpoints/ every 1,000 steps
-# Training log saved to checkpoints/train_log.jsonl
+# Training log saved to results/training_logs.jsonl
 ```
 
 ---
@@ -126,8 +143,8 @@ python main.py train --config configs/base.yaml
 
 | ID | Method | Description |
 |----|--------|-------------|
-| B1 | Vanilla CoT | Uncapped chain-of-thought (2048 token budget) |
-| B2 | Capped CoT | Chain-of-thought capped at same effective budget as InftyThink |
+| B1 | Vanilla CoT | Chain-of-thought capped at 2048 generated tokens |
+| B2 | Capped CoT | Chain-of-thought capped at 768 generated tokens by default |
 | B3 | Segmented, No Summary | Segments without compression; full context passed |
 | B4 | Truncation | Only latest segment as context; no memory |
 
@@ -174,17 +191,31 @@ Results are saved to `results/*.json` (baselines/main) and `results/ablations/*.
 
 ## Evaluation
 
-All methods are evaluated on **500 held-out examples** under a shared **2048-token budget**.
+The configured study evaluates methods on up to **500 held-out examples** and
+records method-specific generation caps plus observed token use. Scientific evaluation requires a compatible
+trained checkpoint and fails closed when one is missing. The training-loss
+evaluation path reports `examples_evaluated` and includes a final partial batch,
+so a configured 500 instances with batch size 8 evaluates all 500—not 496.
 
 Metrics reported:
 - **Accuracy** — exact final-answer match (numeric tolerance 1e-6, fraction equivalence)
 - **Token efficiency** — mean tokens per correct answer (lower = better)
 - **Compression ratio** — mean `summary_tokens / segment_tokens` per step
-- **Peak context length** — mean and p95 over eval examples
-- **95% bootstrap CI** — 10,000 bootstrap samples over accuracy
+- **Peak context length** — experimental mean and p95; cross-method accounting
+  is not yet harmonized, so it is not a validated comparison metric
+- **95% bootstrap CI** — 10,000 resamples over accuracy; the separate paired
+  comparison helper still requires validation before scientific use
 - **McNemar's test** — pairwise significance between M1 and each baseline
 
-Failure analysis classifies wrong answers into 5 categories:
+The scientific evaluator's inference-error coverage and strict JSON handling
+for empty or failed runs have not yet been validated. Do not interpret an
+all-zero result as a successful evaluation without an independently verified
+coverage receipt; the synthetic integrity demo below does not exercise or make
+claims about this evaluator path.
+
+Failure analysis applies five heuristic diagnostic labels. These are not
+validated causal attributions, and unexplained failures may currently fall into
+the default category:
 - `constraint_loss` — problem constraints absent from summary
 - `numeric_drift` — numeric values mutated across steps
 - `subgoal_omission` — unfinished subgoals not carried forward
@@ -195,6 +226,12 @@ Failure analysis classifies wrong answers into 5 categories:
 python main.py evaluate --method inftythink --n-eval 500
 # Output: results/inftythink_eval.json
 ```
+
+The evaluation loader uses the configured training count and seed as its split
+definition (5,000 and 42 by default), so the default evaluation rows begin at
+shuffled row 5,000 rather than overlapping the training rows. Training-loss
+evaluation caps each converted example deterministically but always retains its
+final-answer task.
 
 ---
 
@@ -268,7 +305,7 @@ reasoning/
 │   └── analysis/
 │       ├── statistical_tests.py  # McNemar, paired bootstrap
 │       ├── plot_results.py        # 9 figures
-│       └── ablation_plots.py      # 2D heatmap for joint sweeps
+│       └── ablation_plots.py      # Heatmaps for actual joint-sweep result grids
 ├── scripts/
 │   ├── setup_env.sh           # uv environment setup
 │   ├── prepare_data.sh        # Data preprocessing
@@ -284,7 +321,7 @@ reasoning/
 
 ```bash
 python main.py prepare-data  --n-train 5000 --n-eval 500 --seed 42 --tokenizer gpt2
-python main.py train         --config configs/base.yaml [--checkpoint PATH]
+python main.py train         --config configs/base.yaml
 python main.py evaluate      --method inftythink --n-eval 500
 python main.py run-experiment --name m1_inftythink
 python main.py analyze       --results-dir results/
@@ -302,10 +339,10 @@ python main.py stats         # Print model/tokenizer parameter counts
 
 ```sh
 JAX_PLATFORMS=cpu python -m src.training.smoke --output results/tiny-smoke
-python -m pytest -q tests/test_training_smoke.py tests/test_training_progress.py
+python -m pytest -q tests/test_training_smoke.py tests/test_training_progress.py tests/test_data_converter.py tests/test_dataset_loader.py tests/test_checkpointer.py tests/test_experiment_checkpoint.py tests/test_eval_split.py tests/test_cli_safety.py
 ```
 
-This explicitly synthetic lane trains a randomly initialized tiny transformer for two optimizer steps, checks finite losses and changed parameters, saves and reloads every checkpoint parameter, then generates two tokens from the restored model. It uses no tokenizer/model/data downloads and makes no math-accuracy claim. The checkpoint currently stores parameters only; it does not support faithful optimizer-state resume.
+This explicitly synthetic lane trains a randomly initialized tiny transformer for two optimizer steps, checks finite losses and changed parameters, saves and reloads every checkpoint parameter, generates two tokens from the restored model, and evaluates nine instances as an 8+1 batch split to prove the tail is included. It uses no tokenizer/model/data downloads and makes no math-accuracy, paper-reproduction, or performance claim. The checkpoint currently stores parameters only; it does not support faithful optimizer-state resume, and `train --checkpoint` fails closed. All experiment and `evaluate` commands require a compatible trained checkpoint and never silently substitute random parameters.
 
 The progress tests also run the full training loop at the exact effective-batch
 boundary, including evaluation, logging and checkpoint output. A positive-step
@@ -313,3 +350,12 @@ run needs at least `batch_size * grad_accumulation_steps` converted training
 instances. Smaller input now raises an error before model initialization or
 output creation; reduce those batch dimensions or provide more instances.
 This guards against an epoch loop that never reaches an optimizer update.
+
+The checked-in demo is generated only from that real synthetic smoke receipt:
+
+```sh
+python scripts/verify_demo.py --manifest docs/demo/manifest.json
+```
+
+Its visible fixture label and manifest intentionally exclude math-accuracy,
+paper-reproduction, model-quality, provider, and performance claims.

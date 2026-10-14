@@ -204,6 +204,16 @@ def eval_step(
         "segment_loss": jnp.array(breakdown["segment_loss"]),
         "summary_loss": jnp.array(breakdown["summary_loss"]),
         "final_loss": jnp.array(breakdown["final_loss"]),
+        "segment_token_count": jnp.sum(
+            batch["loss_mask"] * (batch["task_flags"] == 0)[:, None]
+        ),
+        "summary_token_count": jnp.sum(
+            batch["loss_mask"] * (batch["task_flags"] == 1)[:, None]
+        ),
+        "final_token_count": jnp.sum(
+            batch["loss_mask"] * (batch["task_flags"] == 2)[:, None]
+        ),
+        "example_count": jnp.array(batch["input_ids"].shape[0]),
     }
 
 
@@ -216,15 +226,22 @@ def make_batches(
     batch_size: int,
     rng: np.random.Generator,
     shuffle: bool = True,
+    drop_remainder: bool = True,
 ) -> list[dict]:
-    """Shuffle instances and yield batches as numpy dicts."""
+    """Shuffle instances and return numpy batches.
+
+    Training intentionally keeps ``drop_remainder=True`` so every compiled
+    optimizer micro-batch has the configured static shape. Evaluation must
+    pass ``drop_remainder=False`` so its final partial batch is not discarded.
+    """
     if shuffle:
         indices = rng.permutation(len(instances))
     else:
         indices = np.arange(len(instances))
 
     batches = []
-    for start in range(0, len(indices) - batch_size + 1, batch_size):
+    stop = len(indices) if not drop_remainder else len(indices) - batch_size + 1
+    for start in range(0, stop, batch_size):
         idx = indices[start: start + batch_size]
         batch = {
             "input_ids":  np.stack([instances[i]["input_ids"]  for i in idx]),
@@ -283,6 +300,7 @@ def train(
     np_rng = np.random.default_rng(config.seed)
     step = 0
     epoch = 0
+    last_saved_step: int | None = None
 
     print(f"Starting training: {config.max_steps} steps, "
           f"batch={config.batch_size}, eff_batch={config.batch_size * config.grad_accumulation_steps}")
@@ -333,12 +351,14 @@ def train(
             # Save checkpoint
             if step % config.save_every == 0:
                 save_checkpoint(state, step, config.checkpoint_dir)
+                last_saved_step = step
 
     pbar.close()
     log_file.close()
 
-    # Final checkpoint
-    save_checkpoint(state, step, config.checkpoint_dir)
+    # Final checkpoint, unless this exact step was already saved periodically.
+    if last_saved_step != step:
+        save_checkpoint(state, step, config.checkpoint_dir)
     print(f"Training complete. Final step: {step}")
     return state
 
@@ -348,11 +368,17 @@ def _run_eval(
     eval_instances: list[dict],
     batch_size: int,
 ) -> dict:
-    """Run evaluation on all eval instances and return mean metrics."""
+    """Evaluate every instance; token-weight within tasks, then average tasks equally."""
+    if not eval_instances:
+        raise ValueError("Evaluation requires at least one instance; got 0")
     np_rng = np.random.default_rng(0)
-    batches = make_batches(eval_instances, batch_size, np_rng, shuffle=False)
-    if not batches:
-        return {"loss": 0.0, "segment_loss": 0.0, "summary_loss": 0.0, "final_loss": 0.0}
+    batches = make_batches(
+        eval_instances,
+        batch_size,
+        np_rng,
+        shuffle=False,
+        drop_remainder=False,
+    )
 
     all_metrics: list[dict] = []
     for batch in batches:
@@ -360,7 +386,28 @@ def _run_eval(
         m = eval_step(state, batch_jax)
         all_metrics.append(m)
 
+    task_losses: dict[str, float] = {}
+    task_token_counts: dict[str, int] = {}
+    for task in ("segment", "summary", "final"):
+        count_key = f"{task}_token_count"
+        token_count = sum(float(m[count_key]) for m in all_metrics)
+        task_token_counts[f"{task}_tokens"] = int(token_count)
+        task_losses[f"{task}_loss"] = (
+            sum(float(m[f"{task}_loss"]) * float(m[count_key]) for m in all_metrics)
+            / token_count
+            if token_count > 0
+            else 0.0
+        )
+
+    active_losses = [
+        task_losses[f"{task}_loss"]
+        for task in ("segment", "summary", "final")
+        if sum(float(m[f"{task}_token_count"]) for m in all_metrics) > 0
+    ]
     return {
-        k: float(np.mean([m[k] for m in all_metrics]))
-        for k in all_metrics[0]
+        "loss": float(np.mean(active_losses)),
+        **task_losses,
+        **task_token_counts,
+        "examples_evaluated": sum(int(m["example_count"]) for m in all_metrics),
+        "batches_evaluated": len(all_metrics),
     }
