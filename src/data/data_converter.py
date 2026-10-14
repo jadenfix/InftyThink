@@ -87,7 +87,7 @@ def convert_example(
             "input_ids":   np.ndarray  shape (max_seq_len,)  dtype int32
             "target_ids":  np.ndarray  shape (max_seq_len,)  dtype int32
             "loss_mask":   np.ndarray  shape (max_seq_len,)  dtype float32
-                             1.0 on target tokens, 0.0 on input tokens
+                             1.0 at positions predicting target tokens
             "task":        str  "segment" | "summary" | "final"
             "step":        int
             "n_steps":     int
@@ -148,22 +148,38 @@ def _make_instance(
     """Pack input + target into a padded training instance with a loss mask.
 
     The sequence is: [input_ids ... target_ids ... <pad>]
-    loss_mask is 1.0 only on target token positions.
+    loss_mask is 1.0 only on positions whose next-token label is a target token.
     """
     inp_ids = inp["input_ids"]
     tgt_ids = tgt["input_ids"]
 
-    # Truncate input to leave room for target
+    # Truncate input to leave room for target. ``array[-0:]`` returns the
+    # entire array, so handle a zero-sized input budget explicitly.
     max_inp = max_seq_len - len(tgt_ids)
     if max_inp < 0:
         max_inp = 0
-    inp_ids = inp_ids[-max_inp:] if len(inp_ids) > max_inp else inp_ids
+    inp_ids = (
+        inp_ids[-max_inp:]
+        if max_inp > 0 and len(inp_ids) > max_inp
+        else inp_ids
+        if max_inp > 0
+        else np.array([], dtype=np.int32)
+    )
 
     combined = np.concatenate([inp_ids, tgt_ids])
-    loss_mask = np.concatenate([
-        np.zeros(len(inp_ids), dtype=np.float32),
-        np.ones(len(tgt_ids), dtype=np.float32),
-    ])
+    # The model output at position p predicts combined[p + 1]. Mark the
+    # positions that predict target tokens, not the target-token positions
+    # themselves. If no input token fits, the first target has no preceding
+    # position and the remaining target transitions are still supervised.
+    loss_mask = np.zeros(len(combined), dtype=np.float32)
+    first_prediction = max(len(inp_ids) - 1, 0)
+    supervised = min(len(tgt_ids), max(len(combined) - first_prediction - 1, 0))
+    if supervised == 0:
+        raise ValueError(
+            "training instance has no supervised next-token target; "
+            "provide a non-empty target with at least one predictor token"
+        )
+    loss_mask[first_prediction:first_prediction + supervised] = 1.0
 
     # Pad to max_seq_len
     pad_len = max_seq_len - len(combined)

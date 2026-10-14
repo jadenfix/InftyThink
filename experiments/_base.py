@@ -10,7 +10,6 @@ from src.model.config import ModelConfig
 from src.model.transformer import CausalLM
 from src.model.tokenizer import load_tokenizer
 from src.training.checkpointer import latest_checkpoint, load_checkpoint
-from src.data.dataset_loader import load_openr1
 
 
 def load_experiment_config(config_path: str = "configs/base.yaml") -> dict:
@@ -26,7 +25,9 @@ def load_model_and_params(
     """Load model, params, and config.
 
     If checkpoint_path is None, uses the latest checkpoint in checkpoints/.
-    If no checkpoints exist, initializes fresh random params.
+    Scientific evaluation fails closed when a checkpoint is missing or does
+    not match the configured model. Random initialization is reserved for the
+    explicitly synthetic smoke workflow in ``src.training.smoke``.
     """
     cfg_dict = load_experiment_config(config_path)
     if model_config is None:
@@ -35,6 +36,15 @@ def load_model_and_params(
             if k in ModelConfig.__dataclass_fields__
         })
 
+    ckpt = checkpoint_path or latest_checkpoint("checkpoints/")
+    if not ckpt:
+        raise FileNotFoundError(
+            "Evaluation requires a trained checkpoint; none was provided or found "
+            "under checkpoints/. Run training first or pass --checkpoint PATH."
+        )
+    if not os.path.isdir(ckpt):
+        raise FileNotFoundError(f"Checkpoint directory does not exist: {ckpt}")
+
     model = CausalLM(model_config)
     tokenizer = load_tokenizer(cfg_dict["data"].get("tokenizer", "gpt2"))
 
@@ -42,39 +52,46 @@ def load_model_and_params(
     from src.model.tokenizer import get_vocab_size
     model_config.vocab_size = get_vocab_size(tokenizer)
 
-    ckpt = checkpoint_path or latest_checkpoint("checkpoints/")
-    if ckpt:
-        ckpt_data = load_checkpoint(ckpt)
-        print(f"Loaded checkpoint from {ckpt} (step {ckpt_data['step']})")
-        # Reinitialize params with correct shape, then load from npz
-        rng = jax.random.PRNGKey(0)
-        import jax.numpy as jnp
-        dummy = jnp.zeros((1, model_config.max_seq_len), dtype=jnp.int32)
-        variables = model.init(rng, dummy)
-        params = variables["params"]
-        # Overwrite with loaded flat params
-        flat_loaded = ckpt_data["flat_params"]
-        flat_current, treedef = jax.tree_util.tree_flatten(params)
-        if len(flat_loaded) == len(flat_current):
-            params = jax.tree_util.tree_unflatten(
-                treedef, [jnp.array(p) for p in flat_loaded]
+    ckpt_data = load_checkpoint(ckpt)
+    print(f"Loaded checkpoint from {ckpt} (step {ckpt_data['step']})")
+    rng = jax.random.PRNGKey(0)
+    import jax.numpy as jnp
+    dummy = jnp.zeros((1, model_config.max_seq_len), dtype=jnp.int32)
+    variables = model.init(rng, dummy)
+    params = variables["params"]
+    flat_loaded = ckpt_data["flat_params"]
+    flat_current, treedef = jax.tree_util.tree_flatten(params)
+    if len(flat_loaded) != len(flat_current):
+        raise ValueError(
+            f"Checkpoint/model mismatch: checkpoint has {len(flat_loaded)} leaves, "
+            f"configured model has {len(flat_current)}. Refusing to evaluate random params."
+        )
+    for index, (loaded, current) in enumerate(zip(flat_loaded, flat_current, strict=True)):
+        if loaded.shape != current.shape:
+            raise ValueError(
+                f"Checkpoint/model mismatch at leaf {index}: checkpoint shape "
+                f"{loaded.shape}, configured shape {current.shape}."
             )
-        else:
-            print(f"Warning: checkpoint has {len(flat_loaded)} leaves, "
-                  f"model has {len(flat_current)}. Using random init.")
-    else:
-        print("No checkpoint found. Using random initialization.")
-        rng = jax.random.PRNGKey(42)
-        import jax.numpy as jnp
-        dummy = jnp.zeros((1, model_config.max_seq_len), dtype=jnp.int32)
-        variables = model.init(rng, dummy)
-        params = variables["params"]
+    params = jax.tree_util.tree_unflatten(
+        treedef, [jnp.array(p) for p in flat_loaded]
+    )
 
     return model, params, model_config
 
 
-def load_eval_dataset(n_eval: int = 500, seed: int = 42):
-    datasets = load_openr1(n_train=100, n_eval=n_eval, seed=seed)
+def load_eval_dataset(
+    n_eval: int = 500,
+    seed: int | None = None,
+    config_path: str = "configs/base.yaml",
+):
+    """Load evaluation rows after the configured training split boundary."""
+    from src.data.dataset_loader import load_openr1
+
+    config = load_experiment_config(config_path)
+    n_train = int(config["data"]["n_train"])
+    if seed is None:
+        seed = int(config["data"]["seed"])
+    datasets = load_openr1(n_train=n_train, n_eval=n_eval, seed=seed)
     return datasets["eval"]
 
 
